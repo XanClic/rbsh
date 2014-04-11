@@ -59,7 +59,12 @@ $aliases = Hash.new
 
 def method_missing(m, *a)
     return nil if m.to_s.start_with? 'to_'
-    CommandLine.new(m.to_s, a)
+    if a.length == 1 && a[0].kind_of?(PipeLine)
+        v = a[0][0].to_a.unshift m.to_s
+        a[0]
+    else
+        CommandLine.new(m.to_s, a)
+    end
 end
 
 
