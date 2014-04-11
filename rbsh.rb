@@ -4,13 +4,52 @@
 require 'readline'
 
 
-class ProgResult
-    def initialize(res)
-        $res = res
+class PipeLine
+    def initialize(pre, post)
+        @line = [pre, post.kind_of?(PipeLine) ? post.to_a : post].flatten
     end
 
-    def res
-        $res
+    def to_a
+        @line
+    end
+
+    def inspect
+        "#<PipeLine:#{to_a.inspect}>"
+    end
+
+    def method_missing(m, *a)
+        @line.send(m, *a)
+    end
+end
+
+
+class CommandLine
+    def initialize(pre, post)
+        @line = [pre, post.map { |e| e.kind_of?(CommandLine) ? e.to_a : e }].flatten
+    end
+
+    def to_a
+        @line
+    end
+
+    def inspect
+        "#<CommandLine:#{to_a.inspect}>"
+    end
+
+    def | target
+        return PipeLine.new(self, target)
+    end
+
+    def -@
+        @line[0] = "-#{@line[0]}"
+    end
+
+    def to_ary
+        nil
+    end
+
+    def method_missing m
+        @line[-1] = "#{@line[-1]}.#{m.to_s}"
     end
 end
 
@@ -18,36 +57,9 @@ end
 $aliases = Hash.new
 
 
-def run(cmd, *pars)
-    cmd = $aliases[cmd] ? $aliases[cmd] : cmd
-
-    if cmd.kind_of? Array
-        pars = cmd[1..-1] + pars if cmd.length > 1
-        cmd = cmd[0]
-    end
-
-    pid = fork do
-        Kernel.exec(cmd, *pars)
-    end
-
-    Process.wait(pid)
-
-    return ProgResult.new $?
-end
-
-
-def method_missing(m, *args)
-    fn = m.to_s
-
-    return nil if fn.start_with? 'to_'
-
-    if fn.include? '/'
-        throw NoMethodError unless File.file? fn
-    else
-        throw NoMethodError unless ENV['PATH'].split(':').find { |p| File.file? "#{p}/#{fn}" }
-    end
-
-    run(fn, *args)
+def method_missing(m, *a)
+    return nil if m.to_s.start_with? 'to_'
+    CommandLine.new(m.to_s, a)
 end
 
 
@@ -137,10 +149,52 @@ while true
     line = Readline.readline(eval("\"#{$PS1}\""))
     exit 0 unless line
 
-    result = eval(line)
+    begin
+        result = eval(line)
+    rescue SyntaxError
+        cmd = line.split
+        result = CommandLine.new(cmd[0], cmd[1..-1])
+    end
 
-    if result.kind_of?(ProgResult)
-        $procres = result.res
+    result = PipeLine.new(result, []) if result.kind_of? CommandLine
+
+    if result.kind_of? PipeLine
+        len = result.length
+
+        stdin = nil
+
+        pids = result.map.with_index do |cl, i|
+            cl = cl.to_a
+            cmd  = $aliases[cl[0]] ? $aliases[cl[0]] : cl[0]
+            pars = cl[1..-1]
+
+            if cmd.kind_of? Array
+                pars = cmd[1..-1] + pars
+                cmd = cmd[0]
+            end
+
+            if i == len - 1
+                stdout = nstdin = nil
+            else
+                nstdin, stdout = IO.pipe
+            end
+
+            pid = fork do
+                $stdin.reopen(stdin) if stdin
+                $stdout.reopen(stdout) if stdout
+
+                Kernel.exec(cmd, *pars)
+            end
+
+            stdout.close if stdout
+            stdin.close if stdin
+
+            stdin = nstdin
+
+            pid
+        end
+
+        $procres = pids.map { |p| Process.wait p; $? }[-1]
     else
         puts "=> #{result.inspect}"
         $procres = nil
