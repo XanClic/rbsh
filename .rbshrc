@@ -1,0 +1,110 @@
+require 'etc'
+
+
+class PS1
+    def col(fg, bg)
+    end
+
+    def time
+        Time.now.strftime '%H:%M:%S'
+    end
+
+    def temp
+        "#{`sensors 'coretemp-*' | grep 'Physical id 0' | sed -e 's/^[^+]*+\\([^.]\\+\\.[^°C]\\+\\).*$/\\1/g'`.gsub("\n", '')} °C"
+    end
+
+    def freq
+        "#{`grep MHz /proc/cpuinfo | sed -e 's/^.*: *\\([0-9]*\\)\\..*$/\\1/' | tr '\\n' '/' | sed -e 's/\\/$//'`} MHz"
+    end
+
+    def user
+        Etc.getpwuid(Process.uid).name
+    end
+
+    def battery
+        ret = ''
+
+        total_power = 0
+        total_charge = 0
+        total_missing = 0
+        charging = false
+
+        i = 0
+        while File.directory? "/sys/class/power_supply/BAT#{i}"
+            ret += sep($br, $bg, $bb, $fr, $fg, $fb)
+
+            dir = "/sys/class/power_supply/BAT#{i}"
+
+            charge = File.file? "#{dir}/charge_now"
+            unit = charge ? 'A' : 'W'
+
+            now   = IO.read("#{dir}/#{charge ? 'charge' : 'energy'}_now").to_i
+            full  = IO.read("#{dir}/#{charge ? 'charge' : 'energy'}_full").to_i
+            volt  = IO.read("#{dir}/voltage_now").to_i
+            power = IO.read("#{dir}/#{charge ? 'current' : 'power'}_now").to_i
+
+            total_power   += power
+            total_charge  += now
+            total_missing += full - now
+
+            case IO.read "#{dir}/status"
+            when "Charging\n"
+                chr = '+'
+                charging = true
+            when "Discharging\n"
+                chr = '-'
+            else
+                chr = '±'
+            end
+
+            ret += "%.3f / %.3f #{unit}h (%.1f %%) @ %.2f V / #{chr}%.2f #{unit}" %
+                   [now / 1e6, full / 1e6, now * 1e2 / full, volt / 1e6, power / 1e6]
+
+            i += 1
+        end
+
+        if i > 0 && total_power > 0
+            ret += sep($br, $bg, $bb, $fr, $fg, $fb)
+            rem = (charging ? total_missing : total_charge) * 60 / total_power
+            ret += "#{rem / 60}:%02i" % (rem % 60)
+        end
+
+        return ret
+    end
+
+    def sep(fr, fg, fb, br, bg, bb, do_sep = true)
+        ret = do_sep ? " \e[38;2;#{$br};#{$bg};#{$bb};48;2;#{br};#{bg};#{bb}m" : ''
+        ret += "\e[38;2;#{fr};#{fg};#{fb};48;2;#{br};#{bg};#{bb}m "
+
+        $fr = fr
+        $br = br
+        $fg = fg
+        $bg = bg
+        $fb = fb
+        $bb = bb
+
+        return ret
+    end
+
+    def final_sep
+        " \e[0;38;2;#{$br};#{$bg};#{$bb}m\e[0m "
+    end
+
+    def to_s
+        sep(255, 255, 255, 255, 128, 32, false) + time +
+        sep(255, 255, 255, 255, 64, 64) + temp +
+        sep(101, 123, 131, 240, 230, 224) + freq +
+        battery +
+        final_sep + "\n" +
+        (!$procres || $procres.success? ? '' : sep(255, 255, 255, 255, 64, 64, false) + $procres.exitstatus.to_s) +
+        sep(101, 123, 131, 240, 230, 224, $procres && !$procres.success?) + user +
+        sep(255, 255, 255, 32, 128, 255) + Dir.pwd +
+        final_sep
+    end
+end
+
+
+$PS1 = PS1.new
+
+
+$aliases['ls'] = ['ls', '--color']
