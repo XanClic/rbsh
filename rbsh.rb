@@ -85,6 +85,14 @@ def cd(*args)
         end
     end
 
+    unless dir.kind_of? String
+        dir = dir.to_a.flatten
+        throw "Bad argument #{dir.inspect}" if dir.size != 1
+        dir = dir[0]
+        throw "Bad argument #{dir.inspect}" unless dir.kind_of? String
+    end
+
+
     if !dir
         dir = ENV['HOME'] ? ENV['HOME'] : '/'
     end
