@@ -149,13 +149,14 @@ load '.rbshrc'
 
 
 $procres = nil
+b = binding
 
 while true
     line = Readline.readline(eval("\"#{$PS1}\""))
     exit 0 unless line
 
     begin
-        result = eval(line)
+        result = eval(line, b)
     rescue SyntaxError
         cmd = line.split
         result = CommandLine.new(cmd[0], cmd[1..-1])
