@@ -40,16 +40,8 @@ class CommandLine
         return PipeLine.new(self, target)
     end
 
-    def -@
-        @line[0] = "-#{@line[0]}"
-    end
-
     def to_ary
         nil
-    end
-
-    def method_missing m
-        @line[-1] = "#{@line[-1]}.#{m.to_s}"
     end
 end
 
